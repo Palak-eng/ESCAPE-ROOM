@@ -6,7 +6,7 @@ using UnityEngine;
 /// Assign openBookObject to the open diary model in the scene.
 /// </summary>
 [RequireComponent(typeof(Collider))]
-public class DiaryInteractable : MonoBehaviour, IInteractable
+public class DiaryInteractable : MonoBehaviour, IInteractable, IDeferTargeting
 {
     [Header("Diary Identity")]
     [Tooltip("Unique id, e.g. diary_blackwood_1. Used by Collectibles journal.")]
@@ -38,7 +38,16 @@ public class DiaryInteractable : MonoBehaviour, IInteractable
     private Renderer[] closedRenderers;
     private Collider[] openColliders;
 
+    [Header("Range")]
+    [Tooltip("R / Esc only work while the player is within this distance of the book.")]
+    public float sofaInteractRange = 4f;
+
+    private Transform playerTransform;
+
     public bool IsOpenOnSofa => isOpenOnSofa;
+
+    /// <summary>While open on the sofa (renderers off), defer to anything visible behind.</summary>
+    public bool DeferTargeting => isOpenOnSofa;
 
     void Reset()
     {
@@ -61,6 +70,8 @@ public class DiaryInteractable : MonoBehaviour, IInteractable
 
         closedRenderers = closedBookObject.GetComponentsInChildren<Renderer>(true);
 
+        FitColliderToMesh();
+
         if (openBookObject != null)
         {
             openColliders = openBookObject.GetComponentsInChildren<Collider>(true);
@@ -76,7 +87,10 @@ public class DiaryInteractable : MonoBehaviour, IInteractable
 
     void Update()
     {
-        if (!isOpenOnSofa || !IsCurrentTarget())
+        if (!isOpenOnSofa)
+            return;
+
+        if (!IsPlayerInRange())
             return;
 
         var kb = UnityEngine.InputSystem.Keyboard.current;
@@ -148,11 +162,57 @@ public class DiaryInteractable : MonoBehaviour, IInteractable
                 renderer.enabled = visible;
     }
 
-    private bool IsCurrentTarget()
+    private bool IsPlayerInRange()
     {
-        // PlayerInteractor refreshes the prompt every frame only while raycast is on this object.
-        // Keyboard actions are accepted while the book is open and the player remains near/aimed at it.
-        return true;
+        if (playerTransform == null)
+        {
+            GameObject player = GameObject.FindGameObjectWithTag("Player");
+            if (player == null)
+                player = GameObject.Find("PlayerCapsule");
+            if (player != null)
+                playerTransform = player.transform;
+            else
+                return true;
+        }
+
+        float dist = Vector3.Distance(playerTransform.position, transform.position);
+        return dist <= sofaInteractRange;
+    }
+
+    /// <summary>
+    /// Sizes the BoxCollider to the closed book mesh, overwriting hand-dragged
+    /// monsters (a 100m diary collider once shadowed the whole room).
+    /// </summary>
+    private void FitColliderToMesh()
+    {
+        BoxCollider box = GetComponent<BoxCollider>();
+        if (box == null || closedRenderers == null || closedRenderers.Length == 0)
+            return;
+
+        Bounds b = new Bounds();
+        bool init = false;
+        foreach (Renderer r in closedRenderers)
+        {
+            if (r == null) continue;
+            if (!init) { b = r.bounds; init = true; }
+            else b.Encapsulate(r.bounds);
+        }
+        if (!init || b.size == Vector3.zero)
+            return;
+
+        Vector3 lossy = transform.lossyScale;
+        Vector3 localSize = new Vector3(
+            lossy.x != 0f ? b.size.x / Mathf.Abs(lossy.x) : b.size.x,
+            lossy.y != 0f ? b.size.y / Mathf.Abs(lossy.y) : b.size.y,
+            lossy.z != 0f ? b.size.z / Mathf.Abs(lossy.z) : b.size.z);
+        localSize = new Vector3(
+            Mathf.Max(localSize.x * 1.15f, 0.12f),
+            Mathf.Max(localSize.y * 1.15f, 0.12f),
+            Mathf.Max(localSize.z * 1.15f, 0.12f));
+
+        box.center = transform.InverseTransformPoint(b.center);
+        box.size = localSize;
+        box.enabled = true;
     }
 
     /// <summary>Helpers for managers to fetch the page without exposing internals.</summary>

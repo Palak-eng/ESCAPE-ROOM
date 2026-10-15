@@ -10,8 +10,14 @@ public class PlayerInteractor : MonoBehaviour
 
     private IInteractable currentTarget;
 
+    public static PlayerInteractor Instance { get; private set; }
+
+    public IInteractable CurrentTarget => currentTarget;
+
     void Awake()
     {
+        Instance = this;
+
         if (InteractionUI.Instance == null)
         {
             GameObject ui = new GameObject("InteractionUI");
@@ -51,27 +57,62 @@ public class PlayerInteractor : MonoBehaviour
         Transform camTransform = playerCamera != null ? playerCamera.transform : transform;
         Ray ray = new Ray(camTransform.position, camTransform.forward);
 
-        bool hasHit = Physics.Raycast(ray, out RaycastHit hit, interactDistance, interactableLayers, QueryTriggerInteraction.Collide);
+        // Penetrating raycast: check every hit along the ray (nearest first) and take
+        // the first INTERACTABLE one. Furniture/shelves in front no longer hide items.
+        RaycastHit[] hits = Physics.RaycastAll(ray, interactDistance, interactableLayers, QueryTriggerInteraction.Collide);
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        bool hasHit = hits.Length > 0;
+        RaycastHit hit = hasHit ? hits[0] : new RaycastHit();
         Debug.DrawRay(ray.origin, ray.direction * interactDistance, hasHit ? Color.green : Color.red);
 
-        // Check for IInteractable on hit object or its parents
+        // Check for IInteractable on hit object or its parents.
+        // Hits that defer (invisible closed shells used as close handles) yield to
+        // visible interactables behind them, but the first one stays as fallback
+        // so the hidden object remains closable/targetable.
         IInteractable interactable = null;
-        if (hasHit)
+        string hitName = null;
+        IInteractable hiddenFallback = null;
+        RaycastHit hiddenFallbackHit = new RaycastHit();
+        string hiddenFallbackName = null;
+        foreach (RaycastHit h in hits)
         {
-            interactable = hit.collider.GetComponentInParent<IInteractable>();
+            if (h.collider == null) continue;
+            if (hitName == null) hitName = h.collider.gameObject.name;
+            IInteractable found = h.collider.GetComponentInParent<IInteractable>();
+            if (found == null) continue;
+            if (found is IDeferTargeting deferring && deferring.DeferTargeting)
+            {
+                if (hiddenFallback == null)
+                {
+                    hiddenFallback = found;
+                    hiddenFallbackHit = h;
+                    hiddenFallbackName = h.collider.gameObject.name;
+                }
+                continue;
+            }
+            interactable = found;
+            hit = h;
+            hitName = h.collider.gameObject.name;
+            break;
+        }
+        if (interactable == null && hiddenFallback != null)
+        {
+            interactable = hiddenFallback;
+            hit = hiddenFallbackHit;
+            hitName = hiddenFallbackName;
         }
 
-        // Handle UI Prompt
+        // Handle UI Prompt (null / empty prompt = show nothing, e.g. hidden pickups)
         if (interactable != currentTarget)
         {
             currentTarget = interactable;
-            if (currentTarget != null && InteractionUI.Instance != null)
+            if (InteractionUI.Instance != null)
             {
-                InteractionUI.Instance.ShowPrompt(currentTarget.GetInteractionPrompt());
-            }
-            else if (InteractionUI.Instance != null)
-            {
-                InteractionUI.Instance.HidePrompt();
+                if (currentTarget != null)
+                    InteractionUI.Instance.ShowPrompt(currentTarget.GetInteractionPrompt());
+                else
+                    InteractionUI.Instance.HidePrompt();
             }
         }
         else if (currentTarget != null && InteractionUI.Instance != null)
@@ -86,12 +127,12 @@ public class PlayerInteractor : MonoBehaviour
 
         if (currentTarget != null)
         {
-            Debug.Log("<color=green>[PlayerInteractor]</color> Interacted with: " + hit.collider.gameObject.name);
+            Debug.Log("<color=green>[PlayerInteractor]</color> Interacted with: " + hitName);
             currentTarget.OnInteract();
         }
         else if (hasHit)
         {
-            Debug.Log("<color=yellow>[PlayerInteractor]</color> Looked at: " + hit.collider.gameObject.name + " (Not interactable)");
+            Debug.Log("<color=yellow>[PlayerInteractor]</color> Looked at: " + hitName + " (Not interactable)");
         }
         else
         {

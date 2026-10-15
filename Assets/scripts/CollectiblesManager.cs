@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.InputSystem;
-using TMPro;
 
 /// <summary>
 /// Keeps collected diaries + journal UI (press J to open, click entry to re-read).
@@ -26,9 +25,11 @@ public class CollectiblesManager : MonoBehaviour
 
     private GameObject root;
     private Transform listParent;
-    private TextMeshProUGUI countText;
-    private TextMeshProUGUI toastText;
+    private Text countText;
+    private Text toastText;
     private float toastUntil;
+
+    private static Font UiFont => Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
     void Awake()
     {
@@ -47,7 +48,32 @@ public class CollectiblesManager : MonoBehaviour
             // don't toggle journal while fullscreen reading (R/Esc handles that)
             if (DiaryUIManager.Instance != null && DiaryUIManager.Instance.IsOpen)
                 return;
+            // No diaries yet: don't open an empty journal.
+            if (collected.Count == 0)
+            {
+                ShowToast("Find the diary first");
+                return;
+            }
             ToggleJournal();
+        }
+
+        // T opens the diary page itself, fullscreen, skipping the journal list.
+        if (kb != null && kb.tKey.wasPressedThisFrame)
+        {
+            if (DiaryUIManager.Instance == null)
+                return;
+            if (DiaryUIManager.Instance.IsOpen)
+                return;
+            if (collected.Count == 0)
+            {
+                ShowToast("Find the diary first");
+                return;
+            }
+            if (JournalOpen)
+                ToggleJournal(false);
+
+            CollectedDiary d = collected[collected.Count - 1];
+            DiaryUIManager.Instance.OpenDiary(d.id, d.title, d.pageTexture, d.pageSprite);
         }
 
         if (kb != null && kb.escapeKey.wasPressedThisFrame && JournalOpen)
@@ -78,6 +104,16 @@ public class CollectiblesManager : MonoBehaviour
         });
         RefreshList();
         ShowToast("Collected: " + diary.diaryTitle + "  (press J to open journal)");
+    }
+
+    /// <summary>Clears the whole run (used by Play Again).</summary>
+    public void ResetRun()
+    {
+        collected.Clear();
+        if (JournalOpen) ToggleJournal(false);
+        toastUntil = 0f;
+        if (toastText != null) toastText.gameObject.SetActive(false);
+        RefreshList();
     }
 
     public void ToggleJournal() => ToggleJournal(!JournalOpen);
@@ -122,16 +158,17 @@ public class CollectiblesManager : MonoBehaviour
         if (listParent == null) return;
         foreach (Transform c in listParent) Destroy(c.gameObject);
 
-        countText.text = "Collectibles  (" + collected.Count + ")   \u2014   J / Tab to close, click to re-read";
+        countText.text = "Collectibles  (" + collected.Count + ")   -   T / J to close, click to re-read";
 
         if (collected.Count == 0)
         {
             var empty = new GameObject("Empty");
             empty.transform.SetParent(listParent, false);
-            var t = empty.AddComponent<TextMeshProUGUI>();
+            var t = empty.AddComponent<Text>();
             t.text = "No diaries yet. Find the books on the sofa and press E.";
             t.fontSize = 24; t.color = new Color(1, 1, 1, 0.7f);
-            t.alignment = TextAlignmentOptions.Center;
+            t.alignment = TextAnchor.MiddleCenter;
+            t.font = UiFont;
             var rt = empty.GetComponent<RectTransform>();
             rt.anchorMin = new Vector2(0, 1); rt.anchorMax = new Vector2(1, 1);
             rt.pivot = new Vector2(0.5f, 1); rt.sizeDelta = new Vector2(0, 60);
@@ -153,10 +190,11 @@ public class CollectiblesManager : MonoBehaviour
 
             var tGo = new GameObject("Label");
             tGo.transform.SetParent(bGo.transform, false);
-            var t = tGo.AddComponent<TextMeshProUGUI>();
-            t.text = "\U0001F4D6  " + d.title + "   \u2014   click to read";
+            var t = tGo.AddComponent<Text>();
+            t.text = d.title + "   -   click to read";
             t.fontSize = 26; t.color = Color.white;
-            t.alignment = TextAlignmentOptions.MidlineLeft;
+            t.alignment = TextAnchor.MiddleLeft;
+            t.font = UiFont;
             var trt = tGo.GetComponent<RectTransform>();
             trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
             trt.offsetMin = new Vector2(20, 0); trt.offsetMax = Vector2.zero;
@@ -194,9 +232,10 @@ public class CollectiblesManager : MonoBehaviour
 
         var headerGo = new GameObject("Header");
         headerGo.transform.SetParent(panel.transform, false);
-        countText = headerGo.AddComponent<TextMeshProUGUI>();
-        countText.fontSize = 26; countText.alignment = TextAlignmentOptions.Center;
+        countText = headerGo.AddComponent<Text>();
+        countText.fontSize = 26; countText.alignment = TextAnchor.MiddleCenter;
         countText.color = new Color(1f, 0.9f, 0.6f);
+        countText.font = UiFont;
         var hRt = headerGo.GetComponent<RectTransform>();
         hRt.anchorMin = new Vector2(0, 1); hRt.anchorMax = new Vector2(1, 1);
         hRt.pivot = new Vector2(0.5f, 1); hRt.sizeDelta = new Vector2(0, 60);
@@ -216,10 +255,11 @@ public class CollectiblesManager : MonoBehaviour
         // toast (bottom center, always on top, outside journal root so it shows anytime)
         var toastGo = new GameObject("Toast");
         toastGo.transform.SetParent(canvasGo.transform, false);
-        toastText = toastGo.AddComponent<TextMeshProUGUI>();
-        toastText.fontSize = 26; toastText.alignment = TextAlignmentOptions.Center;
+        toastText = toastGo.AddComponent<Text>();
+        toastText.fontSize = 26; toastText.alignment = TextAnchor.MiddleCenter;
         toastText.color = new Color(1f, 0.95f, 0.7f);
-        toastText.fontStyle = FontStyles.Bold;
+        toastText.fontStyle = FontStyle.Bold;
+        toastText.font = UiFont;
         var tRt = toastGo.GetComponent<RectTransform>();
         tRt.anchorMin = new Vector2(0.5f, 0.15f); tRt.anchorMax = new Vector2(0.5f, 0.15f);
         tRt.pivot = new Vector2(0.5f, 0.5f); tRt.sizeDelta = new Vector2(1200, 60);

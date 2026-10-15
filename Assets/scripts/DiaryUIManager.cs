@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.InputSystem;
-using TMPro;
 
 /// <summary>
 /// Fullscreen book reader.
@@ -26,14 +25,18 @@ public class DiaryUIManager : MonoBehaviour
     private GameObject root;
     private GameObject previewPanel;
     private GameObject clearPanel;
-    private TextMeshProUGUI titleText;
-    private TextMeshProUGUI hintText;
-    private TextMeshProUGUI clearHintText;
+    private Text titleText;
+    private Text hintText;
+    private Text clearHintText;
+    private Text storyHintText;
     private RawImage previewRaw;
     private Image previewImg;
     private RawImage clearRaw;
     private Image clearImg;
+    private Image torchGlow;
     private DiaryInteractable worldDiarySource;
+    private bool openedFromWorld;
+    private GUIStyle storyHintGuiStyle;
 
     // player lock
     private readonly List<MonoBehaviour> disabledScripts = new List<MonoBehaviour>();
@@ -70,11 +73,40 @@ public class DiaryUIManager : MonoBehaviour
         }
     }
 
+    void OnGUI()
+    {
+        if (!IsOpen || !IsClearView || !openedFromWorld)
+            return;
+
+        if (storyHintGuiStyle == null)
+        {
+            storyHintGuiStyle = new GUIStyle(GUI.skin.box);
+            storyHintGuiStyle.alignment = TextAnchor.MiddleCenter;
+            storyHintGuiStyle.fontSize = 26;
+            storyHintGuiStyle.fontStyle = FontStyle.Bold;
+            storyHintGuiStyle.normal.textColor = new Color(1f, 0.92f, 0.58f);
+            storyHintGuiStyle.wordWrap = true;
+            storyHintGuiStyle.padding = new RectOffset(18, 18, 10, 10);
+        }
+
+        string message = "Try to understand the riddle, find 4 collectibles, and free yourself.";
+        float width = Mathf.Min(1100f, Screen.width - 80f);
+        float height = 62f;
+        Rect rect = new Rect((Screen.width - width) * 0.5f, Screen.height - 128f, width, height);
+
+        Color oldColor = GUI.color;
+        GUI.color = new Color(0f, 0f, 0f, 0.82f);
+        GUI.Box(rect, GUIContent.none);
+        GUI.color = oldColor;
+        GUI.Box(rect, message, storyHintGuiStyle);
+    }
+
     public void OpenDiary(string id, string title, Texture2D tex, Sprite sprite, DiaryInteractable sourceDiary = null)
     {
         currentId = id;
         currentTitle = title;
         worldDiarySource = sourceDiary;
+        openedFromWorld = sourceDiary != null;
 
         bool hasSprite = sprite != null;
         bool hasTex = tex != null && !hasSprite;
@@ -96,6 +128,16 @@ public class DiaryUIManager : MonoBehaviour
         if (hasSprite) { clearImg.sprite = sprite; clearImg.preserveAspect = true; }
 
         titleText.text = "OPEN  \u2014  " + title;
+        if (torchGlow != null)
+            torchGlow.gameObject.SetActive(TorchPickup.HasTorch);
+        // Story line lives ONLY in the OnGUI story box below (first read).
+        // Keeping it here too showed the same sentence twice, stacked.
+        if (clearHintText != null)
+        {
+            clearHintText.text = "Press R to go back   \u2022   E / Esc to close";
+        }
+        if (storyHintText != null)
+            storyHintText.gameObject.SetActive(false);
         IsOpen = true;
         IsClearView = true;
         root.SetActive(true);
@@ -123,6 +165,7 @@ public class DiaryUIManager : MonoBehaviour
             worldDiarySource.AddToCollectionAndReset();
             worldDiarySource = null;
         }
+        openedFromWorld = false;
         // re-lock cursor for FPS controller
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -203,10 +246,11 @@ public class DiaryUIManager : MonoBehaviour
         // title (OPEN stamp)
         var titleGo = new GameObject("Title");
         titleGo.transform.SetParent(previewPanel.transform, false);
-        titleText = titleGo.AddComponent<TextMeshProUGUI>();
-        titleText.fontSize = 34; titleText.alignment = TextAlignmentOptions.Center;
+        titleText = titleGo.AddComponent<Text>();
+        titleText.fontSize = 34; titleText.alignment = TextAnchor.MiddleCenter;
         titleText.color = new Color(1f, 0.9f, 0.6f);
-        titleText.fontStyle = FontStyles.Bold;
+        titleText.fontStyle = FontStyle.Bold;
+        titleText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         var tRt = titleGo.GetComponent<RectTransform>();
         tRt.anchorMin = new Vector2(0, 1); tRt.anchorMax = new Vector2(1, 1);
         tRt.pivot = new Vector2(0.5f, 1); tRt.sizeDelta = new Vector2(0, 60);
@@ -235,9 +279,10 @@ public class DiaryUIManager : MonoBehaviour
         // hint
         var hintGo = new GameObject("Hint");
         hintGo.transform.SetParent(previewPanel.transform, false);
-        hintText = hintGo.AddComponent<TextMeshProUGUI>();
-        hintText.fontSize = 24; hintText.alignment = TextAlignmentOptions.Center;
+        hintText = hintGo.AddComponent<Text>();
+        hintText.fontSize = 24; hintText.alignment = TextAnchor.MiddleCenter;
         hintText.color = Color.white;
+        hintText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         hintText.text = "Press R for clear HD view   \u2022   E / Esc to close   \u2022   Saved to Collectibles (J)";
         var hRt = hintGo.GetComponent<RectTransform>();
         hRt.anchorMin = new Vector2(0, 0); hRt.anchorMax = new Vector2(1, 0);
@@ -250,6 +295,13 @@ public class DiaryUIManager : MonoBehaviour
         var cpImg = clearPanel.AddComponent<Image>();
         cpImg.color = new Color(0, 0, 0, 0.95f);
         Stretch(clearPanel);
+
+        // Warm torchlight wash behind the page, shown only while carrying the torch.
+        var glowGo = new GameObject("TorchGlow");
+        glowGo.transform.SetParent(clearPanel.transform, false);
+        torchGlow = glowGo.AddComponent<Image>();
+        torchGlow.color = new Color(1f, 0.75f, 0.45f, 0.10f);
+        Stretch(glowGo);
 
         var clrRawGo = new GameObject("ClearRaw");
         clrRawGo.transform.SetParent(clearPanel.transform, false);
@@ -268,14 +320,32 @@ public class DiaryUIManager : MonoBehaviour
 
         var chGo = new GameObject("ClearHint");
         chGo.transform.SetParent(clearPanel.transform, false);
-        clearHintText = chGo.AddComponent<TextMeshProUGUI>();
-        clearHintText.fontSize = 24; clearHintText.alignment = TextAlignmentOptions.Center;
+        clearHintText = chGo.AddComponent<Text>();
+        clearHintText.fontSize = 24; clearHintText.alignment = TextAnchor.MiddleCenter;
         clearHintText.color = Color.white;
+        clearHintText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         clearHintText.text = "Press R to go back   \u2022   E / Esc to close";
         var chRt = chGo.GetComponent<RectTransform>();
         chRt.anchorMin = new Vector2(0.5f, 0); chRt.anchorMax = new Vector2(0.5f, 0);
         chRt.pivot = new Vector2(0.5f, 0); chRt.sizeDelta = new Vector2(1200, 50);
         chRt.anchoredPosition = new Vector2(0, 20);
+
+        var storyGo = new GameObject("StoryHint");
+        storyGo.transform.SetParent(clearPanel.transform, false);
+        storyHintText = storyGo.AddComponent<Text>();
+        storyHintText.fontSize = 26;
+        storyHintText.alignment = TextAnchor.MiddleCenter;
+        storyHintText.color = new Color(1f, 0.92f, 0.58f);
+        storyHintText.fontStyle = FontStyle.Bold;
+        storyHintText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        storyHintText.text = "Try to understand the riddle, find 4 collectibles, and free yourself.";
+        var shRt = storyGo.GetComponent<RectTransform>();
+        shRt.anchorMin = new Vector2(0.5f, 0);
+        shRt.anchorMax = new Vector2(0.5f, 0);
+        shRt.pivot = new Vector2(0.5f, 0);
+        shRt.sizeDelta = new Vector2(1400, 60);
+        shRt.anchoredPosition = new Vector2(0, 75);
+        storyGo.SetActive(false);
 
         // close button (mouse friendly)
         MakeButton(canvasGo.transform, "Close (E)", new Vector2(1, 1), new Vector2(-120, -40), () => Close());
@@ -295,8 +365,9 @@ public class DiaryUIManager : MonoBehaviour
         btn.onClick.AddListener(onClick);
         var tGo = new GameObject("Label");
         tGo.transform.SetParent(bGo.transform, false);
-        var t = tGo.AddComponent<TextMeshProUGUI>();
-        t.text = label; t.fontSize = 22; t.alignment = TextAlignmentOptions.Center; t.color = Color.white;
+        var t = tGo.AddComponent<Text>();
+        t.text = label; t.fontSize = 22; t.alignment = TextAnchor.MiddleCenter; t.color = Color.white;
+        t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         Stretch(tGo);
     }
 

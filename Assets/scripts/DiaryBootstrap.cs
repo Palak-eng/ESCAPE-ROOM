@@ -11,6 +11,7 @@ public static class DiaryBootstrap
     static void EnsureSystems()
     {
         Ensure("InteractionSystems", typeof(InteractionUI), typeof(DiaryUIManager), typeof(CollectiblesManager));
+        Ensure("QuestSystems", typeof(QuestInventory), typeof(GameTimer));
     }
 
     private static void Ensure(string goName, params System.Type[] components)
